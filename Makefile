@@ -12,7 +12,7 @@ test:
 	cargo test
 
 prepare:
-	$(PY) scripts/update_claude.py
+	$(PY) scripts/update_readme.py
 
 dist:
 	$(UV) run maturin build --release --compatibility off --out dist

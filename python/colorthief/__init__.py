@@ -62,9 +62,11 @@ def _to_image_bytes(source: object) -> bytes:
 
     if hasattr(source, "read"):
         pos = source.tell() if hasattr(source, "tell") else None
-        data = source.read()
-        if pos is not None and hasattr(source, "seek"):
-            source.seek(pos)
+        try:
+            data = source.read()
+        finally:
+            if pos is not None and hasattr(source, "seek"):
+                source.seek(pos)
         return bytes(data)
 
     try:

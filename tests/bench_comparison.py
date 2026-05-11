@@ -12,7 +12,7 @@ or:
     python tests/bench_comparison.py --rounds 5 --warmup 2 --iters 200
 
 The script prints a Markdown table and also wraps the results in marker comments
-so `scripts/update_claude.py` can inject them into `CLAUDE.md`.
+so `scripts/update_readme.py` can inject them into `README.md`.
 """
 
 from __future__ import annotations
@@ -79,7 +79,8 @@ IMAGE_PATHS = [
 
 
 def _load_image(path: Path) -> Image.Image:
-    return Image.open(path).convert("RGBA")
+    with Image.open(path) as img:
+        return img.convert("RGBA").copy()
 
 
 def _fit_thumbhash_image(img: Image.Image) -> Image.Image:
@@ -99,15 +100,14 @@ def _fixture_data() -> dict:
     colorthief_bytes = []
 
     for path in IMAGE_PATHS:
-        img = _load_image(path)
-        fitted = _fit_thumbhash_image(img.copy())
+        fitted = _fit_thumbhash_image(_load_image(path))
         thumbhash_images.append(
             {
                 "name": path.name,
                 "w": fitted.size[0],
                 "h": fitted.size[1],
                 "rgba": fitted.tobytes(),
-                "pil": fitted.copy(),
+                "pil": fitted,
             }
         )
         blurhash_images.append(
@@ -116,7 +116,7 @@ def _fixture_data() -> dict:
                 "w": fitted.size[0],
                 "h": fitted.size[1],
                 "rgba": fitted.tobytes(),
-                "pil": fitted.copy(),
+                "pil": fitted,
             }
         )
         colorthief_bytes.append(
@@ -439,38 +439,28 @@ def render_markdown_table(all_rows: list[dict], rounds: int, iters: int) -> str:
     lines.append("> All times are mean per-call latency. Lower is better.")
     lines.append("")
 
-    sections = [
-        ("ThumbHash", [r for r in all_rows if "ThumbHash" in r["op"]]),
-        ("BlurHash", [r for r in all_rows if "BlurHash" in r["op"]]),
-        ("ColorThief", [r for r in all_rows if "ColorThief" in r["op"]]),
-    ]
+    lines.append("| Operation | thumbleweed | Comparison | Result |")
+    lines.append("|-----------|-------------|------------|--------|")
 
-    for section_name, rows in sections:
-        if not rows:
+    ops: dict[str, list[dict]] = {}
+    for row in all_rows:
+        ops.setdefault(row["op"], []).append(row)
+
+    for op, op_rows in ops.items():
+        ours = next((r for r in op_rows if r["lib"].startswith("thumbleweed")), None)
+        if ours is None:
+            raise RuntimeError(f"missing thumbleweed benchmark result for {op!r}")
+
+        competitors = [r for r in op_rows if not r["lib"].startswith("thumbleweed")]
+        if not competitors:
+            lines.append(f"| {op} | {_fmt(ours['mean_us'])} | — | — |")
             continue
-        lines.append(f"### {section_name}")
-        lines.append("")
-        lines.append("| Operation | Library | Mean latency | vs thumbleweed |")
-        lines.append("|-----------|---------|-------------|----------------|")
-        ops: dict[str, list[dict]] = {}
-        for row in rows:
-            ops.setdefault(row["op"], []).append(row)
-        for op, op_rows in ops.items():
-            ours = next(
-                (r for r in op_rows if r["lib"].startswith("thumbleweed")), None
+
+        for row in competitors:
+            lines.append(
+                f"| {op} | {_fmt(ours['mean_us'])} | {row['lib']}: {_fmt(row['mean_us'])} | {_speedup(ours['mean_us'], row.get('mean_us'))} |"
             )
-            our_us = ours["mean_us"] if ours else None
-            if ours:
-                lines.append(
-                    f"| {op} | {ours['lib']} | {_fmt(ours['mean_us'])} | — (baseline) |"
-                )
-            for row in op_rows:
-                if row["lib"].startswith("thumbleweed"):
-                    continue
-                lines.append(
-                    f"| {op} | {row['lib']} | {_fmt(row['mean_us'])} | {_speedup(our_us, row.get('mean_us'))} |"
-                )
-        lines.append("")
+
     return "\n".join(lines)
 
 

@@ -14,6 +14,9 @@ pub enum BlurHashDecodeError {
 
     #[error("hash length {got} does not match component count (expected {expected})")]
     LengthMismatch { expected: usize, got: usize },
+
+    #[error("hash contains invalid base-83 character {ch:?}")]
+    InvalidCharacter { ch: char },
 }
 
 /// Errors that can occur while encoding an image to a BlurHash string.
@@ -56,13 +59,16 @@ static CHARS: [char; 83] = [
 
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
-fn decode_base83(s: &str) -> usize {
+fn decode_base83(s: &str) -> Result<usize, BlurHashDecodeError> {
     let mut value: usize = 0;
     for c in s.chars() {
-        let digit = CHARS.iter().position(|&ch| ch == c).unwrap_or(0);
+        let digit = CHARS
+            .iter()
+            .position(|&ch| ch == c)
+            .ok_or(BlurHashDecodeError::InvalidCharacter { ch: c })?;
         value = value * 83 + digit;
     }
-    value
+    Ok(value)
 }
 
 fn encode_base83(value: usize, length: usize) -> String {
@@ -201,11 +207,11 @@ pub fn decode(
         });
     }
 
-    let size_flag = decode_base83(hash_slice(blur_hash, 0..1)?);
+    let size_flag = decode_base83(hash_slice(blur_hash, 0..1)?)?;
     let ny = (size_flag / 9) + 1;
     let nx = (size_flag % 9) + 1;
 
-    let quant_max_value = decode_base83(hash_slice(blur_hash, 1..2)?);
+    let quant_max_value = decode_base83(hash_slice(blur_hash, 1..2)?)?;
     let max_ac = (quant_max_value as f64 + 1.0) / 166.0;
 
     // Expected hash length: 4 + nx * ny * 2
@@ -217,7 +223,7 @@ pub fn decode(
         });
     }
 
-    let dc_value = decode_base83(hash_slice(blur_hash, 2..6)?);
+    let dc_value = decode_base83(hash_slice(blur_hash, 2..6)?)?;
     let dc = decode_dc(dc_value);
 
     let mut ac_components: Vec<[f64; 3]> = vec![[0.0; 3]; nx * ny];
@@ -228,7 +234,7 @@ pub fn decode(
                 continue;
             }
             let start = 4 + (j * nx + i) * 2;
-            let ac_value = decode_base83(hash_slice(blur_hash, start..start + 2)?);
+            let ac_value = decode_base83(hash_slice(blur_hash, start..start + 2)?)?;
             ac_components[j * nx + i] = decode_ac(ac_value, max_ac);
         }
     }
@@ -358,11 +364,12 @@ mod tests {
     }
 
     #[test]
-    fn out_of_range_char_decodes_to_zero() {
-        // A character not in the base-83 alphabet (e.g. '!') should decode
-        // to digit 0 via our `unwrap_or(0)` fallback.
+    fn out_of_range_char_returns_error() {
         let value = decode_base83("!");
-        assert_eq!(value, 0);
+        assert_eq!(
+            value,
+            Err(BlurHashDecodeError::InvalidCharacter { ch: '!' })
+        );
     }
 
     #[test]

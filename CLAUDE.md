@@ -1,7 +1,7 @@
 # CLAUDE.md — thumbleweed
 
 > This file is the authoritative reference for AI assistants (and humans) working on this repository.
-> It describes the architecture, conventions, API surface, roadmap ideas, and benchmark results.
+> It describes the architecture, conventions, API surface, roadmap ideas, and security/performance notes.
 
 ---
 
@@ -51,8 +51,11 @@ thumbleweed/
 │   ├── test_blurhash.py        # 28+ BlurHash tests
 │   ├── test_colorthief.py      # 30+ ColorThief tests including BytesIO / PIL.Image variants
 │   ├── test_imports.py         # Import consistency & version-parity checks
-│   ├── bench_comparison.py     # Head-to-head performance benchmark (see §7)
+│   ├── bench_comparison.py     # Head-to-head performance benchmark; output is injected into README.md
 │   └── *.jpg                   # Real JPEG test fixtures (one.jpg, two.jpg, four.jpg, OPS.jpg)
+├── scripts/
+│   ├── update_readme.py         # Runs benchmark and refreshes README.md benchmark block
+│   └── build_all.sh             # Local wheel build helper for supported interpreters
 ├── Cargo.toml                  # Rust dependencies
 ├── pyproject.toml              # PEP 621 metadata + maturin config
 ├── .github/workflows/          # CI: build wheels for Linux x86_64/aarch64, macOS, Windows
@@ -217,45 +220,25 @@ The script:
 
 ---
 
-## 7. Performance benchmarks
+## 7. Performance benchmarks and review notes
 
-<!-- BENCHMARK_TABLE:START -->
-## Performance Benchmark Results
-
-> Benchmark configuration: 5 rounds × 100 iterations (pure-Python libraries use 5 iterations).
-> Input corpus: all real image fixtures in `tests/` (`one.jpg`, `two.jpg`, `four.jpg`, `OPS.jpg`).
-> All times are mean per-call latency. Lower is better.
-
-### ThumbHash
-
-| Operation | Library | Mean latency | vs thumbleweed |
-|-----------|---------|-------------|----------------|
-| ThumbHash encode (real test images) | thumbleweed (Rust) | 824.6 µs | — (baseline) |
-| ThumbHash encode (real test images) | thumbhash-python (pure Python) | 27.31 ms | **33.1×** faster |
-| ThumbHash decode (real test images) | thumbleweed (Rust) | 57.2 µs | — (baseline) |
-| ThumbHash decode (real test images) | thumbhash-python (pure Python) | 5.45 ms | **95.3×** faster |
-
-### BlurHash
-
-| Operation | Library | Mean latency | vs thumbleweed |
-|-----------|---------|-------------|----------------|
-| BlurHash encode (real test images) | thumbleweed (Rust) | 4.90 ms | — (baseline) |
-| BlurHash encode (real test images) | blurhash-python (pure Python) | 4.35 ms | 1.1× slower |
-| BlurHash decode 64×64 (real test images) | thumbleweed (Rust) | 868.1 µs | — (baseline) |
-| BlurHash decode 64×64 (real test images) | blurhash-python (pure Python) | 828.1 µs | 1.0× slower |
-
-### ColorThief
-
-| Operation | Library | Mean latency | vs thumbleweed |
-|-----------|---------|-------------|----------------|
-| ColorThief dominant (real test images) | thumbleweed (Rust) | 5.29 ms | — (baseline) |
-| ColorThief dominant (real test images) | fast-colorthief (C ext + NumPy) | 19.37 ms | **3.7×** faster |
-| ColorThief palette-10 (real test images) | thumbleweed (Rust) | 5.32 ms | — (baseline) |
-| ColorThief palette-10 (real test images) | fast-colorthief (C ext + NumPy) | 19.50 ms | **3.7×** faster |
-
-<!-- BENCHMARK_TABLE:END -->
+Benchmark tables are generated only in `README.md` between the `BENCHMARK_TABLE` markers. `scripts/update_readme.py` runs `tests/bench_comparison.py` and refreshes that README block; `make prepare` calls this script.
 
 **Notes on ColorThief timing:** thumbleweed includes image decode in its timing because it accepts raw encoded bytes from the real test fixtures, while `fast-colorthief` also reads from in-memory file-like objects in these benchmarks. This measures realistic end-to-end usage rather than just the inner palette routine.
+
+### Security/performance review notes
+
+Reviewed areas: `src/`, `python/`, `tests/`, `scripts/`, `Makefile`, `Cargo.toml`, and `pyproject.toml`.
+
+Minimal fixes made:
+- Benchmark fixture image loading uses a context manager so Pillow file handles are closed promptly.
+- Benchmark fixture setup avoids an unnecessary initial image copy before resizing.
+- File-like input normalisation restores seek position in `finally` for ThumbHash, BlurHash, and ColorThief helpers.
+- BlurHash decoding rejects invalid base-83 characters instead of silently treating them as zero.
+
+Follow-up considerations:
+- ColorThief converts decoded images to RGBA before palette extraction, which is simple and safe but does extra work for opaque RGB images.
+- Very large encoded image inputs are delegated to the `image` crate; callers handling untrusted input should apply application-level upload size limits.
 
 ---
 

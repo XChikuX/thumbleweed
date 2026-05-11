@@ -123,9 +123,11 @@ def _read_bytes(source: object) -> bytes:
             raise ValueError(f"Image file not found: {source}") from exc
     if hasattr(source, "read"):
         pos = source.tell() if hasattr(source, "tell") else None
-        data = source.read()
-        if pos is not None and hasattr(source, "seek"):
-            source.seek(pos)
+        try:
+            data = source.read()
+        finally:
+            if pos is not None and hasattr(source, "seek"):
+                source.seek(pos)
         return bytes(data)
     raise TypeError(
         f"encode_image() does not know how to handle {type(source).__name__!r}. "

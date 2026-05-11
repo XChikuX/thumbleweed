@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CLAUDE = ROOT / "CLAUDE.md"
+README = ROOT / "README.md"
 BENCH_SCRIPT = ROOT / "tests" / "bench_comparison.py"
 
 START = "<!-- BENCHMARK_TABLE:START -->"
@@ -15,7 +16,7 @@ END = "<!-- BENCHMARK_TABLE:END -->"
 def run_bench() -> str:
     proc = subprocess.run(
         [
-            "python",
+            sys.executable,
             str(BENCH_SCRIPT),
             "--rounds",
             "5",
@@ -28,6 +29,7 @@ def run_bench() -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=300,
     )
     out = proc.stdout
     start = out.find(START)
@@ -38,8 +40,8 @@ def run_bench() -> str:
     return out[start:end]
 
 
-def update_claude(benchmark_block: str) -> None:
-    text = CLAUDE.read_text(encoding="utf-8")
+def update_readme(benchmark_block: str) -> None:
+    text = README.read_text(encoding="utf-8")
     pattern = re.compile(
         re.escape(START) + r".*?" + re.escape(END),
         re.DOTALL,
@@ -48,10 +50,10 @@ def update_claude(benchmark_block: str) -> None:
         new_text = pattern.sub(benchmark_block, text)
     else:
         new_text = text.rstrip() + "\n\n" + benchmark_block + "\n"
-    CLAUDE.write_text(new_text, encoding="utf-8")
+    README.write_text(new_text, encoding="utf-8")
 
 
 if __name__ == "__main__":
     block = run_bench()
-    update_claude(block)
-    print("Updated CLAUDE.md benchmark table")
+    update_readme(block)
+    print("Updated README.md benchmark table")
